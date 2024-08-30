@@ -1,0 +1,134 @@
+﻿@page "/"
+@using System.Net.Http.Json
+@inject IHttpClientFactory HttpClientFactory
+
+<h1 class="my-4 text-center">Rezeptsuche</h1>
+
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-8 offset-md-2">
+            <input @bind="ingredients" placeholder="Geben Sie Zutaten ein (z.B. Eier, Mehl, Chilis)" class="form-control" />
+            <button @onclick="CreateRecipe" class="btn btn-primary mt-2 w-100">Rezept erstellen</button>
+
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="row">
+            <div class="col-md-8 offset-md-2 text-center">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Lädt...</span>
+                </div>
+                <p>Lädt...</p>
+            </div>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(recipeResult))
+    {
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <h3>Rezeptvorschlag:</h3>
+                <div class="card">
+                    <div class="card-body">
+                        <pre>@recipeResult</pre>
+                    </div>
+                    <button @onclick="AddToDB" class="btn btn-primary mt-2">Rezept speichern</button>
+                </div>
+            </div>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <div class="alert alert-danger" role="alert">
+                    @errorMessage
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+
+@code {
+    private string ingredients;
+    string recipeResult;
+    private string errorMessage;
+    private bool isLoading;
+    static RecipeDB rec = new();
+
+    private async Task CreateRecipe()
+    {
+        isLoading = true;
+        errorMessage = string.Empty;
+        recipeResult = string.Empty;
+
+        var request = new
+        {
+            model = "gpt-3.5-turbo",
+            messages = new[]
+            {
+                new { role = "system", content = "Du bist ein Chefkoch in einer Sternenküche" },
+                new { role = "user", content = $"Erstelle ein Rezept mit den folgenden Zutaten. Gib nur relevante Informationen an und die Anzahl Tokens dürfen auf keinen Fall über 800 sein: {ingredients}" }
+            },
+            max_tokens = 800
+        };
+
+        try
+        {
+            var client = HttpClientFactory.CreateClient("OpenAI");
+            var response = await client.PostAsJsonAsync("v1/chat/completions", request);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<OpenAIResponse>();
+                recipeResult = result.Choices.First().Message.Content;
+
+                ingredients = string.Empty; // Clear the input field after successful response
+            }
+            else
+            {
+                errorMessage = $"Fehler: Konnte Rezept nicht abrufen. Status Code: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Ein Fehler ist aufgetreten: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void AddToDB()
+    {
+        Console.WriteLine("Addbtn Pressed");
+        if (string.IsNullOrEmpty(recipeResult))
+        {
+            errorMessage = "Kein gültiges Rezept zum Speichern gefunden.";
+            return;
+        }
+
+        try
+        {
+            rec.InsertIntoRecipe(recipeResult);
+            errorMessage = "Rezept wurde erfolgreich gespeichert.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Fehler beim Speichern des Rezepts: {ex.Message}";
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        rec.OpenConnection(AppContext.BaseDirectory + @"\RecipeDB.db");
+        rec.CreateTable();
+    }
+
+    public void Dispose()
+    {
+        rec.CloseConnection();
+    }
+}

@@ -1,0 +1,128 @@
+﻿@page "/saved-recipes"
+@using System.Net.Mail
+@using System.Net
+
+<h1 class="my-4 text-center">Gespeicherte Rezepte</h1>
+
+<div class="container">
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Lädt...</span>
+            </div>
+            <p>Lädt...</p>
+        </div>
+    }
+    else if (recList != null && recList.Any())
+    {
+        <div class="row">
+            @foreach (var recipe in recList)
+            {
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <pre>@recipe.ConntentText</pre>
+                            <div class="mt-3">
+                                <input @bind="recipientEmail" type="email" class="form-control" placeholder="E-Mail-Adresse" />
+                                <button @onclick="(e => SendRecipeByEmail(recipe))" class="btn btn-success mt-2">Send</button>
+                                <button @onclick="(e => deleteRecipe(recipe.Id))" class="btn btn-primary mt-2">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info" role="alert">
+            Keine gespeicherten Rezepte gefunden.
+        </div>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert alert-info" role="alert">
+        @message
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private RecipeDB rec =new();
+    public List<Recipe> recList;
+    private string recipientEmail;
+    private string message;
+
+    protected override void OnInitialized()
+    {
+        rec.OpenConnection(AppContext.BaseDirectory + @"\RecipeDB.db");
+        LoadRecipes();
+       
+    }
+
+    private void LoadRecipes()
+    {
+        try
+        {
+            recList = rec.GetRecipes();
+            isLoading = true;
+        }
+        catch (Exception ex)
+        {
+            // Fehlerbehandlung hier
+            Console.WriteLine($"Fehler beim Laden der Rezepte: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    public void deleteRecipe(int id)
+    {
+        rec.DeleteRecipe(id);
+        recList = rec.GetRecipes();
+    }
+
+    private async Task SendRecipeByEmail(Recipe recipe)
+    {
+        if (string.IsNullOrEmpty(recipientEmail))
+        {
+            message = "Bitte geben Sie eine E-Mail-Adresse ein.";
+            return;
+        }
+
+        try
+        {
+            var smtpClient = new SmtpClient("mail.gmx.net")
+                {
+                    Port = 587,
+                    Credentials = new NetworkCredential("bbzw_authenticator@gmx.ch", "bbzw_authenticator123"),
+                    EnableSsl = true,
+                };
+
+
+            string emailBody = $"<h2>Ihr Rezept Nr. {recipe.Id}</h2><pre>{recipe.ConntentText}</pre>";
+
+            var mailMessage = new MailMessage
+                {
+                    From = new MailAddress("bbzw_authenticator@gmx.ch"),
+                    Subject = $"Ihr Rezept Nr. {recipe.Id}",
+                    Body = emailBody,
+                    IsBodyHtml = true,
+                };
+
+            mailMessage.To.Add(recipientEmail);
+
+            await smtpClient.SendMailAsync(mailMessage);
+            message = "E-Mail erfolgreich gesendet!";
+        }
+        catch (Exception ex)
+        {
+            message = $"Fehler beim Senden der E-Mail: {ex.Message}";
+        }
+    }
+}
